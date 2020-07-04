@@ -1,0 +1,2 @@
+size_x,size_y,o_detector_num,o_fighter_num,e_detector_num,e_fighter_num,random_pos,random_seed,max_step
+1000,1000,2,10,2,10,False,570,5000
