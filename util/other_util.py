@@ -1,6 +1,8 @@
+import torch
 
-DEBUG = True
 VOID = -99999
+
+DEVICE = 'cuda:1'
 
 ENV_WIDTH = 1000
 ENV_HEIGHT = 1000
@@ -10,7 +12,6 @@ FIGHTER_NUM = 10
 # TOTAL_UNIT_NUM = DETECTOR_NUM + FIGHTER_NUM
 TOTAL_UNIT_NUM = 12
 
-
 DIVIDE = 20
 
 DETECTOR_DETECT_RANGE = 400
@@ -19,7 +20,7 @@ FIGHTER_DETECT_RANGE = 180
 LONG_MISSLE_RANGE = 121
 SHORT_MISSLE_RANGE = 51
 
-MAX_STRIKE_NUM = 1
+MAX_STRIKE_NUM = 2
 
 INF_STRS = ['id', 'pos_x', 'pos_y', 'alive', 'last_reward', 'course', 'l_missile_left', 's_missile_left'
 , 'hit_target'
@@ -36,10 +37,10 @@ S_MISSILE_LEFT = 7
 HIT_TARGET = 8
 # MISSILE_TYPE = 9
 
-FIGHTER_COURSE = 0
-FIGHTER_R = 1
-FIGHTER_J = 2
-FIGHTER_MISSILE = 3
+FIGHTER_ACTION_COURSE = 0
+FIGHTER_ACTION_R = 1
+FIGHTER_ACTION_J = 2
+FIGHTER_ACTION_MISSILE = 3
 
 HEX = 10
 BIT = 3
@@ -64,13 +65,13 @@ def get_inf_from_signal_reward(rewards, inf_index):
 CHOOSE_REWARD = 'baseline'
 REWARD = {
     'baseline': {
-        'assist_reward': 0.2,
+        'assist_reward': 0.1,
         'detect_reward': 0,
-        'destroy_reward': 0.5,
+        'destroy_reward': 0.3,
         'die_reward': -0.5,
         'alive_reward': 0,
-        'total_win_reward': 2,
-        'win_reward': 1,
+        'total_win_reward': 1,
+        'win_reward': -1,
         'draw_reward': -1,
         'lose_reward': -1,
         'total_lose_reward': -2,

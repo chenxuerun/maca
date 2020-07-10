@@ -2,8 +2,9 @@ import random
 
 import numpy as np
 
-from util.env_util import ENV_HEIGHT, ENV_WIDTH
-from util.other_util import DIVIDE
+from util.env_util import ENV_HEIGHT, ENV_WIDTH, get_distances
+from util.other_util import DIVIDE, TOTAL_UNIT_NUM, DETECTOR_NUM, \
+    FIGHTER_NUM, POS_X, POS_Y, ID
 
 # 计数从左上角开始，同坐标
 
@@ -12,15 +13,22 @@ BLOCK_HEIGHT = ENV_HEIGHT // DIVIDE
 
 RL_GAMMA = 0.98
 EXPLORE_PROB = 1
-EXPLORE_NUM_CHOICE = 5
+EXPLORE_NUM_CHOICE = 10
 SWING = 60  # 摆动幅度
+MODIFY_MAP = False
 
-COMMON_NET_FOLDER = 'model/ganlu/common'
-DQN_MODEL_FOLDER = 'model/ganlu/dqn'
+MODEL_FOLDER = 'model/ganlu'
 INTERVAL = 30
 
-COMMON_OUT_CHANNEL = 4
-NINE_ACTION = False
+COMMON_OUT_CHANNELS = [8, 16]
+COMMON_OUT_KERNEL_SIZES = [7, 7]
+DQN_OUT_CHANNELS = [8, 4, 2, 1]
+DQN_OUT_KERNEL_SIZES = [5, 5, 3, 3]
+
+DETECTOR_TO_DETECTOR_TH = 200   # 太近了不行
+DETECTOR_TO_FIGHTER_TH = 300       # 太远了不行, 平均距离
+FIGHTER_TO_DETECTOR_TH = 200       # 太远了不行, 最短距离
+K_DIS_PENALTY = 1e-4
 
 def to_map(coordinates): # 坐标的最小值是0，最大值是1000
     out_map = np.zeros((DIVIDE, DIVIDE))
@@ -28,8 +36,8 @@ def to_map(coordinates): # 坐标的最小值是0，最大值是1000
         return out_map
     dim = len(coordinates.shape)
     if dim == 1:
-        x_index = coordinates[0] // BLOCK_WIDTH
-        y_index = coordinates[1] // BLOCK_HEIGHT
+        x_index = int(coordinates[0] // BLOCK_WIDTH)
+        y_index = int(coordinates[1] // BLOCK_HEIGHT)
         if x_index >= DIVIDE: x_index = DIVIDE - 1
         if y_index >= DIVIDE: y_index = DIVIDE - 1
         out_map[x_index, y_index] += 1
@@ -72,47 +80,6 @@ def q_to_action(q_map):
     action_map = temp.reshape(q_map.shape)
     return action_map, block_index
 
-'''
-def to_big_map(coordinates): # (x, y) ~ [0, 1000]
-    out_map = np.zeros((5, 5))
-    dim = len(coordinates.shape)
-    block_len = 200
-    if dim == 1:
-        x_index = coordinates[0] // block_len
-        y_index = coordinates[1] // block_len
-        out_map[x_index, y_index] += 1
-        return out_map, (x_index, y_index)
-    elif dim == 2:
-        x_indexes = coordinates[:, 0] // block_len
-        y_indexes = coordinates[:, 1] // block_len
-        for i in range(len(coordinates)):
-            out_map[x_indexes[i], y_indexes[i]] += 1
-        return out_map
-    else:
-        raise Exception()
-
-def to_small_map(coordinates, big_map_block):
-    out_map = np.zeros((5, 5))
-    dim = len(coordinates.shape)
-    block_len = 40
-    x_min = 200 * big_map_block[0]
-    y_min = 200 * big_map_block[1]
-    if dim == 1:
-        x_index = (coordinates[0] - x_min) // block_len
-        y_index = (coordinates[1] - y_min) // block_len
-        out_map[x_index, y_index] += 1
-        return out_map, (x_index, y_index)
-    elif dim == 2:
-        x_indexes = (coordinates[:, 0] - x_min) // block_len
-        y_indexes = (coordinates[:, 1] - y_min) // block_len
-        for i in range(len(coordinates)):
-            if (x_indexes[i] in range(0, 5)) and (y_indexes[i] in range(0,5)):
-                out_map[x_indexes[i], y_indexes[i]] += 1
-        return out_map
-    else:
-        raise Exception()
-'''
-
 def block_center_coordinate(block):
     x = BLOCK_WIDTH * block[0] + BLOCK_WIDTH / 2
     y = BLOCK_HEIGHT * block[1] + BLOCK_HEIGHT / 2
@@ -130,24 +97,52 @@ def get_goal_from_action(coordinate, action_block_index): # action: 0~8
     goal[1] += delta_y * BLOCK_HEIGHT
     return goal
 
-def get_action_from_goal(goal, coordinate=None):
-    if NINE_ACTION:
-        action_map = np.zeros((9,))
-        delta = goal - coordinate
-        delta_x = min(max(round(delta[0] / BLOCK_WIDTH), 1), -1) + 1
-        delta_y = min(max(round(delta[1] / BLOCK_HEIGHT), 1), -1) + 1
-        action_index = int(round(3 * delta_y + delta_x))
-        action_map[action_index] += 1
-        action_map = action_map.reshape((3,3))
-    else:
-        action_map, action_index = to_map(goal)
+def get_action_from_goal(goal):
+    action_map, action_index = to_map(goal)
     return action_map, action_index
 
-def get_dqn_name(friend_id):
-    if friend_id == 1: return 'dqnd1' 
-    elif friend_id == 2: return 'dqnd2'
-    elif friend_id in [3,4,5,6,7]: return 'dqnf1'
-    elif friend_id in [8,9,10,11,12]: return 'dqnf2'
+# 对飞机之间的距离有些的要求
+def get_dis_penalties(alive_friend_detector_infs, alive_friend_fighter_infs):
+    dis_penalties = np.zeros((TOTAL_UNIT_NUM,))
+    alive_detector_num = len(alive_friend_detector_infs)
+    alive_fighter_num = len(alive_friend_fighter_infs)
+
+    for i, alive_friend_detector_inf in enumerate(alive_friend_detector_infs):
+        alive_friend_detector_coordinate = alive_friend_detector_inf[[POS_X, POS_Y]]
+        dis_to_fighters = np.mean(
+            get_distances(alive_friend_detector_coordinate, alive_friend_fighter_infs[:, [POS_X, POS_Y]]))
+
+        dis_to_detectors = 0
+        other_detector_num = alive_detector_num - 1
+        if other_detector_num > 0:
+            j = i
+            for _ in range(other_detector_num):
+                j = (j + 1) % alive_detector_num
+                another_detector_coordinate = alive_friend_detector_infs[j][[POS_X, POS_Y]]
+                dis_to_detectors += get_distances(alive_friend_detector_coordinate, another_detector_coordinate)
+            dis_to_detectors /= other_detector_num
+
+        dis_to_detectors_penalty = max(DETECTOR_TO_DETECTOR_TH - dis_to_detectors, 0) * K_DIS_PENALTY
+        dis_to_fighters_penalty = max(dis_to_fighters - DETECTOR_TO_FIGHTER_TH, 0) * K_DIS_PENALTY
+        dis_penalty = dis_to_detectors_penalty + dis_to_fighters_penalty
+        
+        index = alive_friend_detector_inf[ID] - 1
+        dis_penalties[index] = dis_penalty
+
+    for alive_friend_fighter_inf in alive_friend_fighter_infs:
+        min_dis_to_detector = 0
+        if alive_detector_num > 0:
+            alive_friend_fighter_coordinate = alive_friend_fighter_inf[[POS_X, POS_Y]]
+            for alive_friend_detector_inf in alive_friend_detector_infs:
+                dis_to_detector = get_distances(alive_friend_fighter_coordinate, alive_friend_detector_inf[[POS_X, POS_Y]])
+                if dis_to_detector > min_dis_to_detector: min_dis_to_detector = dis_to_detector
+
+        dis_to_detector_penalty = max(min_dis_to_detector - FIGHTER_TO_DETECTOR_TH, 0) * K_DIS_PENALTY
+
+        index = alive_friend_fighter_inf[ID] - 1
+        dis_penalties[index] = dis_to_detector_penalty
+
+    return dis_penalties
 
 def number_to_block(number):
     return (number % DIVIDE, number // DIVIDE)

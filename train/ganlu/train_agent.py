@@ -8,7 +8,7 @@ def train_ganlu(agent):
     agent.recorder.post_process_record()
     agent.commander.train()
 
-    for plane_id in range(1, TOTAL_UNIT_NUM):
+    for plane_id in range(1, TOTAL_UNIT_NUM + 1):
         s, a, r, s_prime, is_last = agent.recorder.record_to_dqn_training_data(plane_id)
         s = torch.Tensor(s).cuda()
         a = torch.Tensor(a).cuda()
@@ -21,4 +21,4 @@ def train_ganlu(agent):
         else:
             agent.commander.dqnf.learn(s, a, r, s_prime, is_last)
 
-    agent.commander.save_model()
+    # agent.commander.save_model()

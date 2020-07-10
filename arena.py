@@ -14,17 +14,21 @@ from interface import Environment
 from train.ganlu.train_agent import train_ganlu
 from util.env_util import *
 
+DEBUG = False
+
 if __name__ == '__main__':
-    num_round = 1
+    num_round = 10
     num_step = 2000
     render = True
     map_path = 'maps/' + '1000_1000_2_10_vs_2_10' + '.map'
 
-    alert_ranges = [180, 220, 260, 300, 340]
+    alert_ranges = [200, 300, 400, 500]
+    # alert_ranges = [200, 233, 266, 300, 333]
     agent_types = ['ganlu' for _ in alert_ranges]
-    # agent_types.append('fix_rule')
+    if not DEBUG: agent_types.append('fix_rule')
     agent_names = [str(x) for x in alert_ranges]
-    # agent_names.append('fix_rule')
+    if not DEBUG: agent_names.append('fix_rule')
+    alert_ranges.append(-1)
     agents = []
 
     for i, agent_type in enumerate(agent_types):
@@ -32,7 +36,7 @@ if __name__ == '__main__':
         agent_module = importlib.import_module(agent_import_path)
         try: agent = agent_module.Agent(name=agent_names[i], alert_range=alert_ranges[i])
         except: 
-            raise
+            if DEBUG: raise
             agent = agent_module.Agent()
         agents.append(agent)
     
@@ -61,21 +65,24 @@ if __name__ == '__main__':
             print('round: ', round_cnt)
 
             try: agent1.reset()
-            except: raise
+            except: 
+                if DEBUG: raise
             try: agent2.reset()
-            except: raise
+            except: 
+                if DEBUG: raise
 
             side1_obs_dict, side2_obs_dict = env.get_obs()
             while True:
+                # time.sleep(0.02)
                 step_cnt += 1
 
                 try: side1_detector_action, side1_fighter_action = agent1.get_action(side1_obs_dict, step_cnt, enemy_obs_dict=side2_obs_dict)
                 except: 
-                    raise
+                    if DEBUG: raise
                     side1_detector_action, side1_fighter_action = agent1.get_action(side1_obs_dict, step_cnt)
                 try: side2_detector_action, side2_fighter_action = agent2.get_action(side2_obs_dict, step_cnt, enemy_obs_dict=side1_obs_dict)
                 except: 
-                    raise
+                    if DEBUG: raise
                     side2_detector_action, side2_fighter_action = agent2.get_action(side2_obs_dict, step_cnt)
 
                 env.step(side1_detector_action, side1_fighter_action, side2_detector_action, side2_fighter_action)
@@ -86,12 +93,23 @@ if __name__ == '__main__':
                     agent1_reward = env_reward[2]
                     agent2_reward = env_reward[5]
                     try: agent1.get_action(side1_obs_dict, step_cnt, enemy_obs_dict=side2_obs_dict, game_reward=agent1_reward)
-                    except: raise
+                    except: 
+                        if DEBUG: raise
                     try: agent2.get_action(side2_obs_dict, step_cnt, enemy_obs_dict=side1_obs_dict, game_reward=agent2_reward)
-                    except: raise
+                    except: 
+                        if DEBUG: raise
                     break
 
             try: train_ganlu(agent1)
-            except: raise
+            except: 
+                if DEBUG: raise
             try: train_ganlu(agent2)
-            except: raise
+            except: 
+                if DEBUG: raise
+
+        try: agent1.commander.save_model()
+        except:
+            if DEBUG: raise
+        try: agent2.commander.save_model()
+        except:
+            if DEBUG: raise

@@ -2,7 +2,6 @@ import math
 
 import numpy as np
 import torch
-from util.dl_util import INPUT_COURSE_DIM
 from util.other_util import *
 
 K_DENSE_PENALTY = 1e-3
@@ -109,7 +108,7 @@ def convert_dict_action_to_array(actions):
     for action in actions:
         hit_tar = action['hit_target']
         if action['missile_type'] == 2:
-            hit_tar += 10
+            hit_tar += TOTAL_UNIT_NUM
         output_action = (action['course'], action['r_fre_point'] if action['r_iswork'] else 0,
             action['j_fre_point'] if action['j_iswork'] else 0, hit_tar)
         output_actions.append(output_action)
@@ -212,9 +211,34 @@ def get_dense_penalty(friends_map, friend_map):
     penalty = min(sigma - 4 * all_friend_num, 0) # 如果平均超过为3个格子，那么损失为0
     return penalty * K_DENSE_PENALTY
 
+def get_distances(source_coordinate, target_coordinates):
+    if len(target_coordinates) == 0: return 0
+    differences = source_coordinate - target_coordinates
+    dim = len(differences.shape)
+    if dim == 1: axis = 0
+    elif dim == 2: axis = 1
+    distances = np.linalg.norm(differences, ord=2, axis=axis)
+    return distances
+
+def get_medium_coordinate(friend_coordinates):
+    if len(friend_coordinates.shape) == 2:
+        return np.mean(friend_coordinates, axis=0)
+    else:
+        return friend_coordinates
+
+# 为了两个探测机而设计的
+def update_cluster_center(old_center, friend_coordinates):
+    cluster_num = math.ceil(len(friend_coordinates) / 2)
+    distances = get_distances(old_center, friend_coordinates)
+    sorted_indexes = np.argsort(distances)
+    choosed_index = sorted_indexes[int(cluster_num / 2)] # 取中位数
+    choosed_coordinate = friend_coordinates[choosed_index]
+    return choosed_coordinate
+
 def escape(friend_coordinate, enemy_coordinates):
     direction_vector = friend_coordinate - enemy_coordinates
-    direction_vector = np.mean(direction_vector, axis=0)
+    if len(direction_vector.shape) == 2:
+        direction_vector = np.mean(direction_vector, axis=0)
     goal = friend_coordinate + direction_vector
     return goal.astype(int)
 
@@ -224,14 +248,14 @@ def try_attack(friend_inf, enemy_id, distance):
     attack = VOID
     if distance < SHORT_MISSLE_RANGE:
         if friend_inf[S_MISSILE_LEFT]:
-            attack = enemy_id + 10
+            attack = enemy_id + TOTAL_UNIT_NUM
         elif friend_inf[L_MISSILE_LEFT]:
             attack = enemy_id
     elif distance < LONG_MISSLE_RANGE:
         if friend_inf[L_MISSILE_LEFT]:
             attack = enemy_id
         elif friend_inf[S_MISSILE_LEFT]:
-            attack = enemy_id + 10
+            attack = enemy_id + TOTAL_UNIT_NUM
     elif distance < FIGHTER_DETECT_RANGE:
         if friend_inf[L_MISSILE_LEFT] or friend_inf[S_MISSILE_LEFT]:
             attack = 0
@@ -246,10 +270,10 @@ def test_missile_range(side1_infs, side2_infs, side1_attacks):
     temp = side1_infs[side1_attack_indexes]
     side1_coordinates = temp[:, [POS_X, POS_Y]]
 
-    temp = side1_attack_out > 10
+    temp = side1_attack_out > TOTAL_UNIT_NUM
     side2_hitted_id = np.copy(side1_attack_out)
     missile_types = np.copy(side1_attack_out)
-    side2_hitted_id[temp] -= 10
+    side2_hitted_id[temp] -= TOTAL_UNIT_NUM
     side2_hitted_id = side2_hitted_id[side2_hitted_id != 0]
     missile_types[missile_types > 0] = 1
     missile_types[temp] = 2

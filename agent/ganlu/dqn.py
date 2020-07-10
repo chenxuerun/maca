@@ -4,108 +4,46 @@ import torch.nn as nn
 import torch
 import torch.optim as optim
 
-from agent.ganlu.cnn import ResUnit
+from agent.ganlu.cnn import BlockNet
 from util.dl_util import mean_square
-from util.ganlu_util import DQN_MODEL_FOLDER, RL_GAMMA, DIVIDE, NINE_ACTION
+from util.ganlu_util import MODEL_FOLDER, RL_GAMMA, DIVIDE, DQN_OUT_KERNEL_SIZES, DQN_OUT_CHANNELS
+from util.other_util import DEVICE
 
 class DQN(nn.Module):
-    def __init__(self, name, input_channels, preprocess_net=None):
+    def __init__(self, name, in_channel, preprocess_net=None):
         super(DQN, self).__init__()
+        self.name = name
         self.tau = 0.05
         self.preprocess = preprocess_net
-        
-        # 20 -> 10 -> 5 -> 3
-        if NINE_ACTION:
-            self.q1 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=2*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=2*input_channels, out_channels=4*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=4*input_channels, out_channels=1,
-                    kernel_size=3, stride=2, padding=1, out_activation=None))
-            self.q2 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=2*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=2*input_channels, out_channels=4*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=4*input_channels, out_channels=1,
-                    kernel_size=3, stride=2, padding=1, out_activation=None))
-            self.target_q1 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=2*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=2*input_channels, out_channels=4*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=4*input_channels, out_channels=1,
-                    kernel_size=3, stride=2, padding=1, out_activation=None))
-            self.target_q2 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=2*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=2*input_channels, out_channels=4*input_channels, 
-                    kernel_size=4, stride=2, padding=1, out_activation=nn.ReLU),
-                ResUnit(in_channels=4*input_channels, out_channels=1,
-                    kernel_size=3, stride=2, padding=1, out_activation=None))
-        # 不变
-        else:
-            self.q1 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=3, stride=1, padding=1),
-                ResUnit(in_channels=input_channels, out_channels=1,
-                    kernel_size=3, stride=1, padding=1, out_activation=None))
-            self.q2 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=3, stride=1, padding=1),
-                ResUnit(in_channels=input_channels, out_channels=1,
-                    kernel_size=3, stride=1, padding=1, out_activation=None))
-            self.target_q1 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=3, stride=1, padding=1),
-                ResUnit(in_channels=input_channels, out_channels=1,
-                    kernel_size=3, stride=1, padding=1, out_activation=None))
-            self.target_q2 = nn.Sequential(
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=5, stride=1, padding=2),
-                ResUnit(in_channels=input_channels, out_channels=input_channels,
-                    kernel_size=3, stride=1, padding=1),
-                ResUnit(in_channels=input_channels, out_channels=1,
-                    kernel_size=3, stride=1, padding=1, out_activation=None))
+
+        self.q1 = BlockNet(in_channel=in_channel, out_channels=DQN_OUT_CHANNELS, kernel_sizes=DQN_OUT_KERNEL_SIZES, out_activation=None)
+        self.target_q1 = BlockNet(in_channel=in_channel, out_channels=DQN_OUT_CHANNELS, kernel_sizes=DQN_OUT_KERNEL_SIZES, out_activation=None)
+        self.q2 = BlockNet(in_channel=in_channel, out_channels=DQN_OUT_CHANNELS, kernel_sizes=DQN_OUT_KERNEL_SIZES, out_activation=None)
+        self.target_q2 = BlockNet(in_channel=in_channel, out_channels=DQN_OUT_CHANNELS, kernel_sizes=DQN_OUT_KERNEL_SIZES, out_activation=None)
         
         self.opt = optim.SGD(self.parameters(), lr=3e-4)
-        self.model_path = os.path.join(DQN_MODEL_FOLDER, name)
 
     def save_model(self):
-        if not os.path.exists(DQN_MODEL_FOLDER):
-            os.mkdir(DQN_MODEL_FOLDER)
+        dqn_folder = os.path.join(MODEL_FOLDER, 'dqn')
+        if not os.path.exists(dqn_folder):
+            os.mkdir(dqn_folder)
         state_dict = {'q1': self.q1.state_dict(), 'q2': self.q2.state_dict(),
             'target_q1': self.target_q1.state_dict(), 'target_q2': self.target_q2.state_dict(),
             'opt': self.opt.state_dict()}
-        torch.save(state_dict, self.model_path)
+        torch.save(state_dict, os.path.join(dqn_folder, self.name))
 
     def load_model(self):
-        device = torch.device('cuda')
-        if os.path.exists(self.model_path):
-            checkpoint = torch.load(self.model_path)
+        model_path = os.path.join(MODEL_FOLDER, 'dqn', self.name)
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path)
             self.q1.load_state_dict(checkpoint['q1'])
             self.target_q1.load_state_dict(checkpoint['target_q1'])
             self.q2.load_state_dict(checkpoint['q2'])
             self.target_q2.load_state_dict(checkpoint['target_q2'])
             self.opt.load_state_dict(checkpoint['opt'])
-        self.to(device)
+        self.to(DEVICE)
 
-    def forward(self, state): # (n, 3, D, D)
+    def forward(self, state): # (n, 5, D, D)
         state = self.pre_process(state)
         q1 = self.q1(state)
         q2 = self.q2(state)
@@ -132,13 +70,9 @@ class DQN(nn.Module):
         q2 = self.q2(s)
         q2 = q2[a==1]
         with torch.no_grad():
-            s_prime = self.pre_process(s_prime)          # (n, 9, D, D)
-            if NINE_ACTION:
-                q1_prime = self.target_q1(s_prime).reshape((-1, 9))     # (n, 1, D, D) -> (n, D*D)
-                q2_prime = self.target_q2(s_prime).reshape((-1, 9))
-            else:
-                q1_prime = self.target_q1(s_prime).reshape((-1, DIVIDE * DIVIDE))
-                q2_prime = self.target_q2(s_prime).reshape((-1, DIVIDE * DIVIDE))
+            s_prime = self.pre_process(s_prime)          # (n, 32, D, D)
+            q1_prime = self.target_q1(s_prime).reshape((-1, DIVIDE * DIVIDE))
+            q2_prime = self.target_q2(s_prime).reshape((-1, DIVIDE * DIVIDE))
             q_prime = torch.where(q1_prime < q2_prime, q1_prime, q2_prime)
             q_prime_max = q_prime.max(dim=1)[0]
             y = torch.where(is_last==1, r, r + RL_GAMMA * q_prime_max)

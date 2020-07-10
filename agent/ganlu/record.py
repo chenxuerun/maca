@@ -36,13 +36,10 @@ class Recorder:
 
         a = np.expand_dims(self.respect_actions[plane_id], axis=1)      # (n, 1, d, d)
 
-        # 把全局回报加到每一步上
-        gamma_game_reward = np.ones_like(r) * self.game_reward
-        for i in reversed(range(0, len_traj - 1)):
-            gamma_game_reward[i] = gamma_game_reward[i+1] * RL_GAMMA
-        r += gamma_game_reward
+        global_rewards = self.global_rewards[0: len_traj]
+        r += global_rewards
 
-        s_prime = np.concatenate([s[1:], s[0][None]])                             # (n, 5, 10, 10)
+        s_prime = np.concatenate([s[1:], s[0][None]])                             # (n, 5, d, d)
 
         is_last = np.zeros_like(r, dtype=int)
         is_last[-1] = 1
@@ -51,6 +48,15 @@ class Recorder:
 
     def post_process_record(self):
         self.obs_maps = np.array(self.obs_maps)
+        len_total_traj = len(self.obs_maps)
+
+        # 把全局回报加到每一步上
+        global_rewards = np.zeros((len_total_traj,))
+        global_rewards[-1] = self.game_reward
+        for i in reversed(range(0, len_total_traj - 1)):
+            global_rewards[i] = global_rewards[i+1] * RL_GAMMA
+        self.global_rewards = global_rewards
+        
         for i in range(1, 11):
             self.respect_states[i] = np.array(self.respect_states[i])
             self.respect_actions[i] = np.array(self.respect_actions[i])
@@ -60,6 +66,13 @@ class Recorder:
     def add_record(self, obs_map, alive_friend_ids, 
         alive_friend_states, alive_friend_actions, rewards, game_reward=None):
         self.accumulate_rewards += rewards
+
+        if game_reward is not None:
+            self.game_reward = game_reward
+            for friend_id in self.last_alive_ids:
+                friend_index = friend_id - 1
+                self.respect_rewards[friend_id].append(self.accumulate_rewards[friend_index])
+            return
 
         if (self.step % INTERVAL == 0):
             self.obs_maps.append(obs_map)
@@ -74,11 +87,5 @@ class Recorder:
 
             self.accumulate_reward = np.zeros((TOTAL_UNIT_NUM,))
             self.last_alive_ids = alive_friend_ids
-
-        if game_reward is not None:
-            self.game_reward = game_reward
-            for friend_id in self.last_alive_ids:
-                friend_index = friend_id - 1
-                self.respect_rewards[friend_id].append(self.accumulate_rewards[friend_index])
 
         self.step += 1

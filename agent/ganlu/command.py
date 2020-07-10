@@ -4,34 +4,35 @@ import torch
 import torch.nn as nn
 
 from agent.ganlu.dqn import DQN
-from agent.ganlu.cnn import ResUnit
+from agent.ganlu.cnn import BlockNet
 from util.ganlu_util import *
+from util.other_util import DEVICE
 
 class Commander:
     def __init__(self, name):
         # 输入：己方统计、敌方统计、当前块，输出：目标块
-        self.common = nn.Sequential( # 预处理
-            ResUnit(in_channels=4, out_channels=COMMON_OUT_CHANNEL, 
-                kernel_size=7, stride=1, padding=3, out_activation=None),
-            ResUnit(in_channels=COMMON_OUT_CHANNEL, out_channels=COMMON_OUT_CHANNEL, 
-                kernel_size=7, stride=1, padding=3, out_activation=None))
-        self.dqnd = DQN(name+'-dqnd', input_channels=COMMON_OUT_CHANNEL + 1, preprocess_net=self.common)
-        self.dqnf = DQN(name+'-dqnf', input_channels=COMMON_OUT_CHANNEL + 1, preprocess_net=self.common)
-        self.common_net_path = os.path.join(COMMON_NET_FOLDER, name)
+        torch.cuda.set_device(DEVICE)
+        self.name = name
+        self.common = BlockNet(in_channel=4, out_channels=COMMON_OUT_CHANNELS, kernel_sizes=COMMON_OUT_KERNEL_SIZES)
+        self.dqnd = DQN(name+'-dqnd', in_channel=COMMON_OUT_CHANNELS[-1] + 1, preprocess_net=self.common)
+        self.dqnf = DQN(name+'-dqnf', in_channel=COMMON_OUT_CHANNELS[-1] + 1, preprocess_net=self.common)
         self.load_model()
         
     def save_model(self):
-        if not os.path.exists(COMMON_NET_FOLDER):
-            os.mkdir(COMMON_NET_FOLDER)
-        torch.save(self.common.state_dict(), self.common_net_path)
+        if not os.path.exists(MODEL_FOLDER):
+            os.mkdir(MODEL_FOLDER)
+        common_net_folder = os.path.join(MODEL_FOLDER, 'common')
+        if not os.path.exists(common_net_folder):
+            os.mkdir(common_net_folder)
+        torch.save(self.common.state_dict(), os.path.join(common_net_folder, self.name))
         self.dqnd.save_model()
         self.dqnf.save_model()
 
     def load_model(self):
-        device = torch.device('cuda')
-        if os.path.exists(self.common_net_path):
-            self.common.load_state_dict(torch.load(self.common_net_path))
-        self.common.to(device)
+        common_net_path = os.path.join(MODEL_FOLDER, 'common', self.name)
+        if os.path.exists(common_net_path):
+            self.common.load_state_dict(torch.load(common_net_path))
+        self.common.to(DEVICE)
         self.dqnd.load_model()
         self.dqnf.load_model()
 
@@ -39,7 +40,10 @@ class Commander:
         action_maps = []
         action_block_indexes = []
         if self.step % INTERVAL == 0: # 每INTERVAL更换一次action
-            modified_map = self.get_modified_map(obs_map)
+            if MODIFY_MAP:
+                modified_map = self.get_modified_map(obs_map)
+            else:
+                modified_map = obs_map
             for i, friend_map in enumerate(alive_friend_maps):
                 state = torch.Tensor(np.concatenate([
                     modified_map, np.expand_dims(friend_map, axis=0)])).unsqueeze_(0).cuda()
