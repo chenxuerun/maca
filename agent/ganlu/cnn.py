@@ -6,7 +6,7 @@ import torch.optim as optim
 # 保证不改变feature_map
 
 class BlockNet(nn.Module):
-    def __init__(self, in_channel, out_channels, kernel_sizes, out_activation=nn.Tanh):
+    def __init__(self, in_channel, out_channels, kernel_sizes, out_activation=nn.ReLU):
         super(BlockNet, self).__init__()
         units = []
         last_channel = in_channel
@@ -21,7 +21,7 @@ class BlockNet(nn.Module):
         return self.net(input)
 
 class ResUnit(nn.Module):
-    def __init__(self, in_channel, out_channel, kernel_size=3, out_activation=nn.Tanh):
+    def __init__(self, in_channel, out_channel, kernel_size=3, out_activation=nn.ReLU):
         super(ResUnit, self).__init__()
         self.conv1 = nn.Conv2d(in_channel, (in_channel + out_channel) // 2, kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) // 2)
         self.conv2 = nn.Conv2d((in_channel + out_channel) // 2, out_channel, kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) // 2)
@@ -33,7 +33,7 @@ class ResUnit(nn.Module):
 
     def forward(self, x):
         out = self.conv1(x)
-        out = F.tanh(out)
+        out = F.relu(out)
         out = self.conv2(out)
         if (x.shape[1] != out.shape[1]):
             x = self.projection(x)

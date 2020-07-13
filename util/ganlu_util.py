@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 
-from util.env_util import ENV_HEIGHT, ENV_WIDTH, get_distances
+from util.env_util import ENV_HEIGHT, ENV_WIDTH, get_distances, dis_to_edge
 from util.other_util import DIVIDE, TOTAL_UNIT_NUM, DETECTOR_NUM, \
     FIGHTER_NUM, POS_X, POS_Y, ID
 
@@ -13,7 +13,7 @@ BLOCK_HEIGHT = ENV_HEIGHT // DIVIDE
 
 RL_GAMMA = 0.98
 EXPLORE_PROB = 1
-EXPLORE_NUM_CHOICE = 10
+EXPLORE_NUM_CHOICE = 20
 SWING = 60  # 摆动幅度
 MODIFY_MAP = False
 
@@ -26,9 +26,11 @@ DQN_OUT_CHANNELS = [8, 4, 2, 1]
 DQN_OUT_KERNEL_SIZES = [5, 5, 3, 3]
 
 DETECTOR_TO_DETECTOR_TH = 200   # 太近了不行
-DETECTOR_TO_FIGHTER_TH = 300       # 太远了不行, 平均距离
+DETECTOR_TO_FIGHTER_TH = 200       # 太远了不行, 平均距离
 FIGHTER_TO_DETECTOR_TH = 200       # 太远了不行, 最短距离
-K_DIS_PENALTY = 1e-4
+FIGHTER_TO_FIGHTER_TH = 200
+EDGE_TH = 150
+K_DIS_PENALTY = 2e-6
 
 def to_map(coordinates): # 坐标的最小值是0，最大值是1000
     out_map = np.zeros((DIVIDE, DIVIDE))
@@ -122,25 +124,38 @@ def get_dis_penalties(alive_friend_detector_infs, alive_friend_fighter_infs):
                 dis_to_detectors += get_distances(alive_friend_detector_coordinate, another_detector_coordinate)
             dis_to_detectors /= other_detector_num
 
-        dis_to_detectors_penalty = max(DETECTOR_TO_DETECTOR_TH - dis_to_detectors, 0) * K_DIS_PENALTY
-        dis_to_fighters_penalty = max(dis_to_fighters - DETECTOR_TO_FIGHTER_TH, 0) * K_DIS_PENALTY
+        dis_to_detectors_penalty = - max(DETECTOR_TO_DETECTOR_TH - dis_to_detectors, 0) * K_DIS_PENALTY
+        dis_to_fighters_penalty = - max(dis_to_fighters - DETECTOR_TO_FIGHTER_TH, 0) * K_DIS_PENALTY
         dis_penalty = dis_to_detectors_penalty + dis_to_fighters_penalty
         
         index = alive_friend_detector_inf[ID] - 1
-        dis_penalties[index] = dis_penalty
+        dis_penalties[index] += dis_penalty
 
     for alive_friend_fighter_inf in alive_friend_fighter_infs:
+        index = alive_friend_fighter_inf[ID] - 1
+        alive_friend_fighter_coordinate = alive_friend_fighter_inf[[POS_X, POS_Y]]
         min_dis_to_detector = 0
         if alive_detector_num > 0:
-            alive_friend_fighter_coordinate = alive_friend_fighter_inf[[POS_X, POS_Y]]
             for alive_friend_detector_inf in alive_friend_detector_infs:
                 dis_to_detector = get_distances(alive_friend_fighter_coordinate, alive_friend_detector_inf[[POS_X, POS_Y]])
                 if dis_to_detector > min_dis_to_detector: min_dis_to_detector = dis_to_detector
 
-        dis_to_detector_penalty = max(min_dis_to_detector - FIGHTER_TO_DETECTOR_TH, 0) * K_DIS_PENALTY
+        # 不能离探测机太远
+        dis_to_detector_penalty = - max(min_dis_to_detector - FIGHTER_TO_DETECTOR_TH, 0) * K_DIS_PENALTY
+        dis_penalties[index] += dis_to_detector_penalty
 
-        index = alive_friend_fighter_inf[ID] - 1
-        dis_penalties[index] = dis_to_detector_penalty
+        # 不能离队友太远
+        temp_dis = get_distances(alive_friend_fighter_coordinate, alive_friend_fighter_infs[:, [POS_X, POS_Y]])
+        if len(temp_dis) > 1:
+            temp_dis = np.sum(temp_dis) / (len(temp_dis) - 1)
+        else: temp_dis = temp_dis[0]
+        dis_to_fighter_penalty = - max(temp_dis - FIGHTER_TO_FIGHTER_TH, 0) * K_DIS_PENALTY
+        dis_penalties[index] += dis_to_fighter_penalty
+
+        # 不能太靠近边上
+        temp_dis = dis_to_edge(alive_friend_fighter_coordinate)
+        edge_penalty = - max(EDGE_TH - temp_dis, 0) * K_DIS_PENALTY
+        dis_penalties[index] += edge_penalty
 
     return dis_penalties
 

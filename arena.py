@@ -19,16 +19,18 @@ DEBUG = False
 if __name__ == '__main__':
     num_round = 10
     num_step = 2000
-    render = True
+    render = False
     map_path = 'maps/' + '1000_1000_2_10_vs_2_10' + '.map'
 
-    alert_ranges = [200, 300, 400, 500]
-    # alert_ranges = [200, 233, 266, 300, 333]
+    alert_ranges = [200, 250, 300, 350, 400]
     agent_types = ['ganlu' for _ in alert_ranges]
-    if not DEBUG: agent_types.append('fix_rule')
     agent_names = [str(x) for x in alert_ranges]
-    if not DEBUG: agent_names.append('fix_rule')
-    alert_ranges.append(-1)
+
+    if not DEBUG:
+        agent_types.append('fix_rule')
+        agent_names.append('fix_rule')
+        alert_ranges.append(-1)
+
     agents = []
 
     for i, agent_type in enumerate(agent_types):
@@ -50,7 +52,7 @@ if __name__ == '__main__':
 
     while(True):
         choosed_agent_indexes = random.sample(range(agents_num), 2)
-        # choosed_agent_indexes = [1, 2]
+        # choosed_agent_indexes = [0, 4]
         SIDE1_INDEX = choosed_agent_indexes[0]
         SIDE2_INDEX = choosed_agent_indexes[1]
         agent1 = agents[SIDE1_INDEX]

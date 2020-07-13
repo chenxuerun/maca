@@ -163,7 +163,7 @@ def get_disappeared_enemy(friend_infs, buffered_enemy_infs, enemy_infs):
             friend_coordinates = friend_infs[:, [POS_X, POS_Y]]
             difference = enemy_coordinate - friend_coordinates
             distance = np.linalg.norm(difference, ord=2, axis=1)
-            if (distance < 30).any():
+            if (distance < 100).any():
                 disappeared_enemy_ids.append(enemy_inf[ID])
     return np.array(disappeared_enemy_ids)
 
@@ -195,6 +195,14 @@ def get_corner_penalty(friend_map):
     lenn = min(x_len, y_len)
     penalty = min(3 - lenn, 0)
     return penalty * K_CORNER_PENALTY
+
+def dis_to_edge(friend_coordinate):
+    x = friend_coordinate[0]
+    y = friend_coordinate[1]
+    x_len = min(x, 1000 - x)
+    y_len = min(y, 1000 - y)
+    min_len = min(x_len, y_len)
+    return min_len
 
 def get_dense_penalty(friends_map, friend_map):
     sigma = 0
@@ -233,6 +241,12 @@ def update_cluster_center(old_center, friend_coordinates):
     sorted_indexes = np.argsort(distances)
     choosed_index = sorted_indexes[int(cluster_num / 2)] # 取中位数
     choosed_coordinate = friend_coordinates[choosed_index]
+    return choosed_coordinate
+
+def farest_friend_coordinate(coordinate, friend_coordinates):
+    distances = get_distances(coordinate, friend_coordinates)
+    max_index = np.argmax(distances)
+    choosed_coordinate = friend_coordinates[max_index]
     return choosed_coordinate
 
 def escape(friend_coordinate, enemy_coordinates):

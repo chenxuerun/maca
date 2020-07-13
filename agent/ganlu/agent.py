@@ -125,6 +125,7 @@ class Agent(BaseAgent):
             if alive_friend_fighter_num > 0:
                 self.cluster_center[i] = update_cluster_center(self.cluster_center[i], alive_friend_fighter_coordinates)
                 detector_goal = self.cluster_center[i]
+                # detector_goal = farest_friend_coordinate(alive_friend_detector_inf[[POS_X, POS_Y]], alive_friend_fighter_coordinates)
             else:
                 detector_goal = np.random.randint(1001, size=2)
 
@@ -188,9 +189,16 @@ class Agent(BaseAgent):
                         continue
 
             if fighter_goal is None:
-                fighter_goal = block_min_coordinate((number_to_block(action_block_indexes[i])))
-                fighter_goal[0] += random.randint(0, BLOCK_WIDTH)
-                fighter_goal[1] += random.randint(0, BLOCK_HEIGHT)
+                if step_cnt < 100:
+                    fighter_goal = alive_friend_fighter_coordinate.copy()
+                    if fighter_goal[0] < 500: fighter_goal[0] = 0
+                    else: fighter_goal[0] = 1000
+                    new_action_map, _ = get_action_from_goal(fighter_goal)
+                    action_maps[i + alive_friend_detector_num] = new_action_map
+                else:
+                    fighter_goal = block_min_coordinate((number_to_block(action_block_indexes[i])))
+                    fighter_goal[0] += random.randint(0, BLOCK_WIDTH)
+                    fighter_goal[1] += random.randint(0, BLOCK_HEIGHT)
                 swing = random.randint(-SWING, SWING)
             else: 
                 new_action_map, _ = get_action_from_goal(fighter_goal)
@@ -238,7 +246,7 @@ class Agent(BaseAgent):
             alives = friend_infs[:, ALIVE]
             rewards = reward_dict['detect_reward'] * detect_nums + reward_dict['destroy_reward'] * destroy_nums + \
                     reward_dict['die_reward'] * dies + reward_dict['alive_reward'] * alives + \
-                            reward_dict['assist_reward'] * detector_assists + dis_penalties
+                            reward_dict['assist_reward'] * detector_assists + dis_penalties + escape_penalties
             if 'game_reward' in kwargs.keys():
                 game_reward = kwargs['game_reward']
             else: game_reward = None
