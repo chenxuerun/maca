@@ -2,20 +2,17 @@ import torch
 
 VOID = -99999
 
-DEVICE = 'cuda:1'
+DEVICE_STR = 'cuda:0'
+DEVICE = torch.device(DEVICE_STR)
 
 ENV_WIDTH = 1000
 ENV_HEIGHT = 1000
 
-DETECTOR_NUM = 2
 FIGHTER_NUM = 10
-# TOTAL_UNIT_NUM = DETECTOR_NUM + FIGHTER_NUM
-TOTAL_UNIT_NUM = 12
+TOTAL_UNIT_NUM = 10
 
 DIVIDE = 20
 
-DETECTOR_DETECT_RANGE = 400
-ALERT_RANGE = 250
 FIGHTER_DETECT_RANGE = 180
 LONG_MISSLE_RANGE = 121
 SHORT_MISSLE_RANGE = 51
@@ -65,7 +62,6 @@ def get_inf_from_signal_reward(rewards, inf_index):
 CHOOSE_REWARD = 'baseline'
 REWARD = {
     'baseline': {
-        'assist_reward': 0.1,
         'detect_reward': 0,
         'destroy_reward': 0.3,
         'die_reward': -0.3,

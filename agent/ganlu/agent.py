@@ -3,8 +3,8 @@ import random
 import torch
 import torch.nn as nn
 
-from agent.ganlu.handle import InfsHandler
 from agent.base_agent import BaseAgent
+from agent.ganlu.handle import InfsHandler
 from agent.ganlu.record import Recorder
 from agent.ganlu.dqn import DQN
 from agent.ganlu.command import Commander
@@ -34,7 +34,6 @@ class Agent(BaseAgent):
         self.recorder.reset()
         self.commander.reset()
         self.commander.eval()
-        self.cluster_center = np.array([[500, 0], [500, 1000]])
 
     def set_map_info(self, size_x, size_y, detector_num, fighter_num):
         self.size_x = size_x
@@ -45,17 +44,13 @@ class Agent(BaseAgent):
     # 每个时刻都要追踪所有敌机的位置，用于判断是否进攻，
     # 每INTERVAL个时刻Commander调用一次网络，更新目标位置。
     def get_action(self, obs_dict, step_cnt, **kwargs):
-        friend_detector_infs, friend_fighter_infs, enemy_infs = get_inf_from_one_dict(obs_dict)
+        _, friend_fighter_infs, enemy_infs = get_inf_from_one_dict(obs_dict)
         # (id, x, y, alive, last_reward)
-        friend_infs = np.concatenate([friend_detector_infs, friend_fighter_infs[:, 0:5]])
-        alive_friend_detector_infs = get_alive_inf(friend_detector_infs)
+        friend_infs = friend_fighter_infs
         alive_friend_fighter_infs = get_alive_inf(friend_fighter_infs)
-        alive_friend_detector_ids = alive_friend_detector_infs[:, ID]
         alive_friend_fighter_ids = alive_friend_fighter_infs[:, ID]
-        alive_friend_ids = np.concatenate([alive_friend_detector_ids, alive_friend_fighter_ids])
-        alive_friend_detector_coordinates = alive_friend_detector_infs[:, [POS_X, POS_Y]]
+        alive_friend_ids = alive_friend_fighter_ids
         alive_friend_fighter_coordinates = alive_friend_fighter_infs[:, [POS_X, POS_Y]]
-        alive_friend_detector_num = len(alive_friend_detector_infs)
         alive_friend_fighter_num = len(alive_friend_fighter_infs)
 
         now_strikes = strike_list_to_array(obs_dict['joint_obs_dict']['strike_list'])
@@ -63,18 +58,7 @@ class Agent(BaseAgent):
         enemy_infs_from_strike = get_enemy_inf_from_strike(obs_dict)
         detect_nums, dies, destroy_nums = get_inf_from_signal_rewards(friend_infs)
 
-        # 在remove enemy之前统计，detector reward
         destroyed_enemy_ids = self.handler.get_destroyed_enemy_ids(now_strikes, destroy_nums)
-        detector_assists = np.zeros((TOTAL_UNIT_NUM,)) 
-        if (len(destroyed_enemy_ids) != 0)  and (len(alive_friend_detector_infs) != 0):
-            last_buffered_enemy_infs = self.handler.get_enemy_infs()
-            destroyed_enemy_infs = np.array(
-                [inf for inf in last_buffered_enemy_infs if inf[0] in destroyed_enemy_ids]).reshape((-1, 3))
-            destoryed_enemy_coordinates = destroyed_enemy_infs[:, [POS_X, POS_Y]]
-            for detector_inf in alive_friend_detector_infs:
-                dis = get_distances(detector_inf[[POS_X, POS_Y]], destoryed_enemy_coordinates)
-                num = np.sum(dis < DETECTOR_DETECT_RANGE)
-                detector_assists[detector_inf[ID] - 1] = num
         
         self.handler.remove_enemy_coordinates(destroyed_enemy_ids)
         buffered_enemy_infs = self.handler.get_enemy_infs()
@@ -84,66 +68,29 @@ class Agent(BaseAgent):
         self.handler.update_coordinates(enemy_infs_from_strike)
         self.handler.update_coordinates(enemy_infs)
 
-        for enemy_id in destroyed_enemy_ids:
-            if enemy_id in [1, 2]:
-                self.commander.enemy_detector_num -= 1
-            else:
-                self.commander.enemy_fighter_num -= 1
+        self.commander.enemy_fighter_num -= len(destroyed_enemy_ids)
 
         new_enemy_infs = self.handler.get_enemy_infs()
         new_enemy_coordinates = new_enemy_infs[:, [POS_X, POS_Y]]
-        new_enemy_detector_infs, new_enemy_fighter_infs = divide_infs(new_enemy_infs)
-        new_enemy_detector_coordinates = new_enemy_detector_infs[:, [POS_X, POS_Y]]
+        new_enemy_fighter_infs = new_enemy_infs
         new_enemy_fighter_coordinates = new_enemy_fighter_infs[:, [POS_X, POS_Y]]
 
         # 以下全都只包括活着的数据，各数组下标第一维都是对应的。
-        friend_detectors_map = to_map(alive_friend_detector_coordinates)
         friend_fighters_map = to_map(alive_friend_fighter_coordinates)
-        see_enemy_detectors_map = to_map(new_enemy_detector_coordinates)
         see_enemy_fighters_map = to_map(new_enemy_fighter_coordinates)
-        obs_map = np.stack([friend_detectors_map, friend_fighters_map,
-            see_enemy_detectors_map, see_enemy_fighters_map])
-        friend_detector_maps, friend_detector_block_indexes = to_divided_maps(alive_friend_detector_coordinates)
+        obs_map = np.stack([friend_fighters_map, see_enemy_fighters_map])
         friend_fighter_maps, friend_fighter_block_indexes = to_divided_maps(alive_friend_fighter_coordinates)
-        friend_maps = np.concatenate([friend_detector_maps, friend_fighter_maps])
+        friend_maps = friend_fighter_maps
 
         # 先输出一个行为，根据后面进攻的情况再改
         action_maps, action_block_indexes = self.commander.act(obs_map, friend_maps, alive_friend_ids)
-        detector_action_block_indexes = action_block_indexes[0: alive_friend_detector_num]
-        fighter_action_block_indexes = action_block_indexes[alive_friend_detector_num:]
+        fighter_action_block_indexes = action_block_indexes
 
-        detector_actions = np.zeros((DETECTOR_NUM, 2), dtype=int)
         fighter_actions = np.zeros((FIGHTER_NUM, 4), dtype=int)
-        alive_detector_actions = []          # [course, r]
         alive_fighter_actions = []              # [course, r, j, attack]
-        detector_r = random.randint(1, 20)
         fighter_r = random.randint(1, 10)
         j = 11
         d_enemy_dis_dict = {}                   # {enemy_index: (alive_friend_index, dis)} 视野范围以内
-
-        for i, alive_friend_detector_inf in enumerate(alive_friend_detector_infs):
-            if alive_friend_fighter_num > 0:
-                self.cluster_center[i] = update_cluster_center(self.cluster_center[i], alive_friend_fighter_coordinates)
-                detector_goal = self.cluster_center[i]
-                # detector_goal = farest_friend_coordinate(alive_friend_detector_inf[[POS_X, POS_Y]], alive_friend_fighter_coordinates)
-            else:
-                detector_goal = np.random.randint(1001, size=2)
-
-            detector_coordinate = alive_friend_detector_inf[[POS_X, POS_Y]]
-            # detector_goal = block_min_coordinate(
-            #     number_to_block(detector_action_block_indexes[i]))
-            # detector_goal[0] += random.randint(0, BLOCK_WIDTH)
-            # detector_goal[1] += random.randint(0, BLOCK_HEIGHT)
-            detector_course = course_start_to_goal(start=detector_coordinate, goal=detector_goal)
-            detector_action = np.array([detector_course, detector_r])
-            alive_detector_actions.append(detector_action)
-
-            new_action_map, _ = get_action_from_goal(detector_goal)
-            action_maps[i] = new_action_map
-
-        for i, detector_action in enumerate(alive_detector_actions):
-            detector_id = alive_friend_detector_infs[i, ID]
-            detector_actions[detector_id - 1] = detector_action
 
         for i, alive_friend_fighter_inf in enumerate(alive_friend_fighter_infs):
             alive_friend_fighter_coordinate = alive_friend_fighter_inf[[POS_X, POS_Y]]
@@ -164,6 +111,8 @@ class Agent(BaseAgent):
                 near_enemy_indexes = []
 
             if len(near_enemy_indexes) != 0:  # near包括ALERT_RANGE以内有敌人
+                
+                # 能干扰到敌机就记录，最后决策时要留一架干扰
                 for enemy_index in near_enemy_indexes:
                     enemy_distance = enemy_distances[enemy_index]
                     if enemy_distance < FIGHTER_DETECT_RANGE:
@@ -189,12 +138,13 @@ class Agent(BaseAgent):
                         continue
 
             if fighter_goal is None:
-                if step_cnt < 100:
+                # if step_cnt < 100:
+                if False:
                     fighter_goal = alive_friend_fighter_coordinate.copy()
                     if fighter_goal[0] < 500: fighter_goal[0] = 0
                     else: fighter_goal[0] = 1000
                     new_action_map, _ = get_action_from_goal(fighter_goal)
-                    action_maps[i + alive_friend_detector_num] = new_action_map
+                    action_maps[i] = new_action_map
                 else:
                     fighter_goal = block_min_coordinate((number_to_block(action_block_indexes[i])))
                     fighter_goal[0] += random.randint(0, BLOCK_WIDTH)
@@ -202,7 +152,7 @@ class Agent(BaseAgent):
                 swing = random.randint(-SWING, SWING)
             else: 
                 new_action_map, _ = get_action_from_goal(fighter_goal)
-                action_maps[i + alive_friend_detector_num] = new_action_map
+                action_maps[i] = new_action_map
                 swing = 0
 
             fighter_course = course_start_to_goal(start=alive_friend_fighter_coordinate, goal=fighter_goal)
@@ -223,14 +173,13 @@ class Agent(BaseAgent):
         # 得到所有行动
         for i, alive_fighter_action in enumerate(alive_fighter_actions):
             plane_id = alive_friend_fighter_infs[i, ID]
-            fighter_index = plane_id - 1 - DETECTOR_NUM
+            fighter_index = plane_id - 1
             fighter_actions[fighter_index] = alive_fighter_action
-        fighter_actions[-1][FIGHTER_ACTION_J] = 21
 
         if self.record: # 记录
             reward_dict = REWARD[CHOOSE_REWARD]
 
-            dis_penalties = get_dis_penalties(alive_friend_detector_infs, alive_friend_fighter_infs)
+            dis_penalties = get_dis_penalties(alive_friend_fighter_infs)
 
             # 卖队友要惩罚
             escape_penalties = np.zeros((TOTAL_UNIT_NUM,))
@@ -245,8 +194,7 @@ class Agent(BaseAgent):
 
             alives = friend_infs[:, ALIVE]
             rewards = reward_dict['detect_reward'] * detect_nums + reward_dict['destroy_reward'] * destroy_nums + \
-                    reward_dict['die_reward'] * dies + reward_dict['alive_reward'] * alives + \
-                            reward_dict['assist_reward'] * detector_assists + dis_penalties + escape_penalties
+                    reward_dict['die_reward'] * dies + reward_dict['alive_reward'] * alives + dis_penalties + escape_penalties
             if 'game_reward' in kwargs.keys():
                 game_reward = kwargs['game_reward']
             else: game_reward = None
@@ -255,4 +203,4 @@ class Agent(BaseAgent):
                 alive_friend_states=friend_maps,  alive_friend_actions=action_maps, 
                 rewards=rewards, game_reward=game_reward)
 
-        return detector_actions, fighter_actions
+        return None, fighter_actions

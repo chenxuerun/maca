@@ -7,7 +7,7 @@ import torch.optim as optim
 from agent.ganlu.cnn import BlockNet
 from util.dl_util import mean_square
 from util.ganlu_util import MODEL_FOLDER, RL_GAMMA, DIVIDE, DQN_OUT_KERNEL_SIZES, DQN_OUT_CHANNELS
-from util.other_util import DEVICE
+from util.other_util import DEVICE, DEVICE_STR
 
 class DQN(nn.Module):
     def __init__(self, name, in_channel, preprocess_net=None):
@@ -35,7 +35,7 @@ class DQN(nn.Module):
     def load_model(self):
         model_path = os.path.join(MODEL_FOLDER, 'dqn', self.name)
         if os.path.exists(model_path):
-            checkpoint = torch.load(model_path)
+            checkpoint = torch.load(model_path, map_location=DEVICE_STR)
             self.q1.load_state_dict(checkpoint['q1'])
             self.target_q1.load_state_dict(checkpoint['target_q1'])
             self.q2.load_state_dict(checkpoint['q2'])
@@ -43,17 +43,17 @@ class DQN(nn.Module):
             self.opt.load_state_dict(checkpoint['opt'])
         self.to(DEVICE)
 
-    def forward(self, state): # (n, 5, D, D)
+    def forward(self, state): # (n, 3, D, D)
         state = self.pre_process(state)
         q1 = self.q1(state)
         q2 = self.q2(state)
         return torch.where(q1 < q2, q1, q2)
 
-    def pre_process(self, state):       # (n, 5, d, d)
+    def pre_process(self, state):       # (n, 3, d, d)
         if self.preprocess:
-            all_state = state[:, [0, 1, 2, 3]]
+            all_state = state[:, [0, 1]]
             all_state = self.preprocess(all_state)
-            state = torch.cat([all_state, torch.unsqueeze(state[:, 4], dim=1)], dim=1)
+            state = torch.cat([all_state, torch.unsqueeze(state[:, 2], dim=1)], dim=1)
         return state
 
     def sync_weight(self):

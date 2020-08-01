@@ -6,15 +6,14 @@ import torch.nn as nn
 from agent.ganlu.dqn import DQN
 from agent.ganlu.cnn import BlockNet
 from util.ganlu_util import *
-from util.other_util import DEVICE
+from util.other_util import DEVICE, DEVICE_STR
 
 class Commander:
     def __init__(self, name):
         # 输入：己方统计、敌方统计、当前块，输出：目标块
         torch.cuda.set_device(DEVICE)
         self.name = name
-        self.common = BlockNet(in_channel=4, out_channels=COMMON_OUT_CHANNELS, kernel_sizes=COMMON_OUT_KERNEL_SIZES)
-        self.dqnd = DQN(name+'-dqnd', in_channel=COMMON_OUT_CHANNELS[-1] + 1, preprocess_net=self.common)
+        self.common = BlockNet(in_channel=2, out_channels=COMMON_OUT_CHANNELS, kernel_sizes=COMMON_OUT_KERNEL_SIZES)
         self.dqnf = DQN(name+'-dqnf', in_channel=COMMON_OUT_CHANNELS[-1] + 1, preprocess_net=self.common)
         self.load_model()
         
@@ -25,15 +24,13 @@ class Commander:
         if not os.path.exists(common_net_folder):
             os.mkdir(common_net_folder)
         torch.save(self.common.state_dict(), os.path.join(common_net_folder, self.name))
-        self.dqnd.save_model()
         self.dqnf.save_model()
 
     def load_model(self):
         common_net_path = os.path.join(MODEL_FOLDER, 'common', self.name)
         if os.path.exists(common_net_path):
-            self.common.load_state_dict(torch.load(common_net_path))
+            self.common.load_state_dict(torch.load(common_net_path, map_location=DEVICE_STR))
         self.common.to(DEVICE)
-        self.dqnd.load_model()
         self.dqnf.load_model()
 
     def act(self, obs_map, alive_friend_maps, alive_friend_ids): # 每个env_step都会调用
@@ -47,10 +44,7 @@ class Commander:
             for i, friend_map in enumerate(alive_friend_maps):
                 state = torch.Tensor(np.concatenate([
                     modified_map, np.expand_dims(friend_map, axis=0)])).unsqueeze_(0).cuda()
-                if alive_friend_ids[i] in [1, 2]:
-                    q_map = self.dqnd(state)[0, 0].detach().cpu().numpy()
-                else:
-                    q_map = self.dqnf(state)[0, 0].detach().cpu().numpy()
+                q_map = self.dqnf(state)[0, 0].detach().cpu().numpy()
                 action_map, action_block_index = q_to_action(q_map)
                 action_maps.append(action_map)
                 action_block_indexes.append(action_block_index)
@@ -89,17 +83,14 @@ class Commander:
     def reset(self):
         self.step = 0
         self.enemy_fighter_num = 10
-        self.enemy_detector_num = 2
         self.action_buffer = {}
 
     def train(self):
         self.common.train()
-        self.dqnd.train()
         self.dqnf.train()
     
     def eval(self):
         self.common.eval()
-        self.dqnd.eval()
         self.dqnf.eval()
 
     # 原本是probability，后来用了mean_square训练，就不再是probability了

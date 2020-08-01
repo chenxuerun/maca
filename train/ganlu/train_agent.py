@@ -16,9 +16,9 @@ def train_ganlu(agent):
         s_prime = torch.Tensor(s_prime).cuda()
         is_last = torch.Tensor(is_last).cuda()
         
-        if plane_id in [1, 2]:
-            agent.commander.dqnd.learn(s, a, r, s_prime, is_last)
-        else:
-            agent.commander.dqnf.learn(s, a, r, s_prime, is_last)
+        # if plane_id in [1, 2]:
+        #     agent.commander.dqnd.learn(s, a, r, s_prime, is_last)
+        # else:
+        agent.commander.dqnf.learn(s, a, r, s_prime, is_last)
 
     # agent.commander.save_model()

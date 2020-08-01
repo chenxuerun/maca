@@ -47,16 +47,7 @@ def get_inf_from_one_dict(obs_dict): # 对战时使用
         if fighter_obs['alive']:
             for enemy_inf in fighter_obs['r_visible_list']:
                 enemy_dict[enemy_inf['id']] = (enemy_inf['id'], enemy_inf['pos_x'], enemy_inf['pos_y'])
-    for detector_obs in obs_dict['detector_obs_list']:
-        detector_inf = []
-        for inf_str in ['id', 'pos_x', 'pos_y', 'alive', 'last_reward']:
-            detector_inf.append(detector_obs[inf_str])
-        detector_infs.append(detector_inf)
-        if detector_obs['alive']:
-            for enemy_inf in detector_obs['r_visible_list']:
-                enemy_dict[enemy_inf['id']] = (enemy_inf['id'], enemy_inf['pos_x'], enemy_inf['pos_y'])
-    
-    detector_infs = np.array(detector_infs, dtype=int).reshape((-1, 5))
+                
     fighter_infs = np.array(fighter_infs, dtype=int)
     enemy_infs = np.array(list(enemy_dict.values()), dtype=int).reshape((-1, 3))
 
